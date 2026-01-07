@@ -1,4 +1,8 @@
 //! Tests for logger module.
+//!
+//! Note: Tests that use PTY operations (test_run_subprocess_*) must be run
+//! with `--test-threads=1` to avoid concurrency issues with PTY operations.
+//! PTY operations are not thread-safe and can hang when run in parallel.
 
 #[cfg(test)]
 mod tests {

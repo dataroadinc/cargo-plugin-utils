@@ -373,6 +373,8 @@ where
 
     // Channel to coordinate rendering (send raw bytes to preserve ANSI codes)
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    // Keep a clone of tx to close the channel if we timeout
+    let tx_clone = tx.clone();
 
     // Collect output as it arrives (for timeout fallback)
     let collected_output = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
@@ -507,10 +509,21 @@ where
             // Timeout occurred - this can happen in CI environments where PTY EOF
             // detection is delayed. Since the process has already exited, we use
             // the output we collected as it arrived through the channel.
+            // Close the channel to allow render_task to complete
+            drop(tx_clone);
             collected_output.lock().unwrap().clone()
         }
     };
-    let (_final_output_ring, was_term) = render_task.await.context("Failed to join render task")?;
+    // Wait for render task with timeout to prevent hanging
+    let (_final_output_ring, was_term) =
+        match tokio::time::timeout(std::time::Duration::from_secs(5), render_task).await {
+            Ok(result) => result.context("Failed to join render task")?,
+            Err(_) => {
+                // Render task timed out - this shouldn't happen, but if it does,
+                // we'll just continue without the final render state
+                (Vec::new(), is_term)
+            }
+        };
 
     // For now, treat all PTY output as stderr (we can separate later if needed)
     // In PTY mode, stdout and stderr are combined
