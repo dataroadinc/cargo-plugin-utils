@@ -374,6 +374,10 @@ where
     // Channel to coordinate rendering (send raw bytes to preserve ANSI codes)
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
 
+    // Collect output as it arrives (for timeout fallback)
+    let collected_output = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let collected_output_clone = collected_output.clone();
+
     // Task to read from PTY (combines stdout and stderr)
     // PTY reader is blocking, so we use spawn_blocking
     let pty_task = tokio::spawn(async move {
@@ -387,6 +391,10 @@ where
                     Ok(n) => {
                         let chunk = &buffer[..n];
                         full_output.extend_from_slice(chunk);
+                        // Also collect in shared buffer for timeout fallback
+                        if let Ok(mut collected) = collected_output_clone.lock() {
+                            collected.extend_from_slice(chunk);
+                        }
                         let _ = tx.send(chunk.to_vec());
                     }
                     Err(e) => {
@@ -394,6 +402,9 @@ where
                         let error_msg = format!("<pty read error: {}>", e);
                         let error_bytes = error_msg.as_bytes();
                         full_output.extend_from_slice(error_bytes);
+                        if let Ok(mut collected) = collected_output_clone.lock() {
+                            collected.extend_from_slice(error_bytes);
+                        }
                         let _ = tx.send(error_bytes.to_vec());
                         break;
                     }
@@ -488,10 +499,17 @@ where
     drop(master);
 
     // Wait for PTY reading to complete (with timeout to prevent hanging)
-    let pty_output = tokio::time::timeout(std::time::Duration::from_secs(30), pty_task)
-        .await
-        .context("PTY read task timed out")?
-        .context("Failed to join PTY task")??;
+    // If timeout occurs but process has exited, use collected output as fallback
+    let pty_output = match tokio::time::timeout(std::time::Duration::from_secs(10), pty_task).await
+    {
+        Ok(result) => result.context("Failed to join PTY task")??,
+        Err(_) => {
+            // Timeout occurred - this can happen in CI environments where PTY EOF
+            // detection is delayed. Since the process has already exited, we use
+            // the output we collected as it arrived through the channel.
+            collected_output.lock().unwrap().clone()
+        }
+    };
     let (_final_output_ring, was_term) = render_task.await.context("Failed to join render task")?;
 
     // For now, treat all PTY output as stderr (we can separate later if needed)
@@ -636,16 +654,9 @@ mod tests {
     #[tokio::test]
     async fn test_run_subprocess_simple_failure() {
         let mut logger = Logger::new();
-        let output = run_subprocess(
-            &mut logger,
-            || {
-                let cmd = CommandBuilder::new("false");
-                cmd
-            },
-            Some(3),
-        )
-        .await
-        .unwrap();
+        let output = run_subprocess(&mut logger, || CommandBuilder::new("false"), Some(3))
+            .await
+            .unwrap();
 
         assert!(!output.success());
         assert_ne!(output.exit_code(), 0);
@@ -781,10 +792,7 @@ mod tests {
         let mut logger = Logger::new();
         let result = run_subprocess(
             &mut logger,
-            || {
-                let cmd = CommandBuilder::new("nonexistent-command-xyz-123");
-                cmd
-            },
+            || CommandBuilder::new("nonexistent-command-xyz-123"),
             None,
         )
         .await;
