@@ -602,6 +602,7 @@ impl Drop for Logger {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(windows))]
     use portable_pty::CommandBuilder;
 
     use super::*;
