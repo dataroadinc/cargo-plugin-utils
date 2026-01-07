@@ -79,7 +79,9 @@ jobs:
           path: target
           key: ${{ runner.os }}-${{ matrix.rust }}-target-test-${{ hashFiles('**/Cargo.lock') }}
       - name: Run tests
-        run: cargo test
+        run: cargo test -- --test-threads=1
+        # PTY tests require single-threaded execution to avoid concurrency issues
+        # This applies to all platforms to ensure consistent test behavior
       - name: Run doc tests
         shell: bash
         run: |
