@@ -498,29 +498,52 @@ where
 
     // Close the PTY master to signal EOF to the reader
     // This ensures the reader sees EOF even if the process has already exited
+    // On Windows, we need to drop the master earlier to help the blocking read
+    // return
     drop(master);
+
+    // On Windows, give a small delay to allow the reader to see EOF
+    #[cfg(windows)]
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     // Wait for PTY reading to complete (with timeout to prevent hanging)
     // If timeout occurs but process has exited, use collected output as fallback
-    let pty_output = match tokio::time::timeout(std::time::Duration::from_secs(10), pty_task).await
-    {
-        Ok(result) => result.context("Failed to join PTY task")??,
+    // On Windows, use a very short timeout since blocking reads may never return
+    let timeout_duration = if cfg!(windows) {
+        std::time::Duration::from_millis(500)
+    } else {
+        std::time::Duration::from_secs(10)
+    };
+    let pty_output = match tokio::time::timeout(timeout_duration, pty_task).await {
+        Ok(result) => {
+            // Task completed, get the result
+            result.context("Failed to join PTY task")??
+        }
         Err(_) => {
-            // Timeout occurred - this can happen in CI environments where PTY EOF
-            // detection is delayed. Since the process has already exited, we use
-            // the output we collected as it arrived through the channel.
+            // Timeout occurred - this commonly happens on Windows where blocking
+            // reads in spawn_blocking cannot be cancelled. Since the process has
+            // already exited, we use the output we collected as it arrived through
+            // the channel. The blocking task will continue running in the background
+            // but won't affect the test outcome.
             // Close the channel to allow render_task to complete
             drop(tx_clone);
             collected_output.lock().unwrap().clone()
         }
     };
     // Wait for render task with timeout to prevent hanging
+    // Use very short timeout on Windows where operations may hang
+    let render_timeout = if cfg!(windows) {
+        std::time::Duration::from_millis(500)
+    } else {
+        std::time::Duration::from_secs(5)
+    };
     let (_final_output_ring, was_term) =
-        match tokio::time::timeout(std::time::Duration::from_secs(5), render_task).await {
+        match tokio::time::timeout(render_timeout, render_task).await {
             Ok(result) => result.context("Failed to join render task")?,
             Err(_) => {
-                // Render task timed out - this shouldn't happen, but if it does,
-                // we'll just continue without the final render state
+                // Render task timed out - this can happen on Windows where
+                // blocking operations may not complete. We'll continue without
+                // the final render state.
                 (Vec::new(), is_term)
             }
         };
