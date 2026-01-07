@@ -115,6 +115,7 @@ dependencies = [
  "gix",
  "indicatif",
  "portable-pty",
+ "sloughi",
  "tempfile",
  "tokio",
 ]
@@ -1377,6 +1378,12 @@ dependencies = [
  "errno",
  "libc",
 ]
+
+[[package]]
+name = "sloughi"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0569fee432a4d80dbdcb77b16df865536b49baa45b72fff3ee4b6ea11033bfd0"
 
 [[package]]
 name = "smallvec"
