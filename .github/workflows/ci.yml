@@ -132,11 +132,42 @@ jobs:
             echo "ℹ️  Version unchanged: $CARGO_VERSION"
           fi
 
-  # Release: Tag, Changelog, GitHub Release, and Publish
+  # Create release tag after all tests pass
+  create-release-tag:
+    name: Create Release Tag
+    runs-on: ubuntu-latest
+    needs: [fmt, clippy, test, version-check]
+    if: needs.version-check.outputs.version_changed == 'true'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push release tag
+        run: |
+          VERSION="${{ needs.version-check.outputs.new_version }}"
+          TAG="v$VERSION"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, skipping creation."
+          else
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+            echo "✅ Created and pushed tag $TAG"
+          fi
+
+  # Release: Changelog, GitHub Release, and Publish
   release:
     name: Release
     runs-on: ubuntu-latest
-    needs: [fmt, clippy, test, version-check]
+    needs: [fmt, clippy, test, version-check, create-release-tag]
     if: needs.version-check.outputs.version_changed == 'true'
     permissions:
       contents: write
@@ -163,17 +194,6 @@ jobs:
           cargo binstall --no-confirm cocogitto
           which cog  # Verify installation
 
-      - name: Ensure Release Tag Exists
-        run: |
-          VERSION="${{ needs.version-check.outputs.new_version }}"
-          TAG="v$VERSION"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists."
-          else
-            git tag -a "$TAG" -m "Release $TAG"
-            echo "Created tag $TAG on HEAD."
-          fi
-
       - name: Generate Changelog with Cocogitto
         id: changelog
         run: |
@@ -183,12 +203,6 @@ jobs:
         run: |
           cat CHANGELOG.md
           echo "Changelog generated for v${{ needs.version-check.outputs.new_version }}"
-
-      - name: Push Release Tag
-        run: |
-          VERSION="${{ needs.version-check.outputs.new_version }}"
-          git push origin "v$VERSION"
-          echo "✅ Pushed tag v$VERSION"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1

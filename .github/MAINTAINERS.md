@@ -75,14 +75,18 @@ Ensure these secrets are configured:
 Releases are automated via GitHub Actions when the version in
 `Cargo.toml` changes:
 
-1. Update version in `Cargo.toml`
+1. Update version in `Cargo.toml` (or use `cog bump --patch`)
 2. Commit and push to `main`
 3. CI will automatically:
-   - Create git tag
+   - Run all tests (fmt, clippy, test)
+   - Create git tag (only after all tests pass)
    - Generate changelog
    - Create GitHub release
    - Publish to crates.io
-   - Build and upload binaries
+
+**Note:** If using `cog bump` locally, it will create a tag. Delete it
+with `git tag -d v<VERSION>` before pushing - CI will create the tag
+after tests pass. This ensures tags only exist for validated code.
 
 ## Review Guidelines
 
