@@ -2,8 +2,8 @@
 
 [![Crates.io](https://img.shields.io/crates/v/cargo-plugin-utils.svg)](https://crates.io/crates/cargo-plugin-utils)
 [![Documentation](https://docs.rs/cargo-plugin-utils/badge.svg)](https://docs.rs/cargo-plugin-utils)
-[![CI](https://github.com/agnos-ai/cargo-plugin-utils/workflows/CI%2FCD/badge.svg)](https://github.com/agnos-ai/cargo-plugin-utils/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/agnos-ai/cargo-plugin-utils/blob/main/LICENSE)
+[![CI](https://github.com/dataroadinc/cargo-plugin-utils/workflows/CI%2FCD/badge.svg)](https://github.com/dataroadinc/cargo-plugin-utils/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/dataroadinc/cargo-plugin-utils/blob/main/LICENSE)
 
 Shared utilities for cargo plugins, including logger with subprocess handling,
 common functions for package detection and repository discovery.

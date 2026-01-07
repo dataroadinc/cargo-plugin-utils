@@ -210,7 +210,7 @@ jobs:
         run: |
           echo "🎉 Successfully released v${{ needs.version-check.outputs.new_version }}"
           echo "📦 Published to crates.io: https://crates.io/crates/cargo-plugin-utils"
-          echo "📝 GitHub Release: https://github.com/agnos-ai/cargo-plugin-utils/releases/tag/v${{ needs.version-check.outputs.new_version }}"
+          echo "📝 GitHub Release: https://github.com/dataroadinc/cargo-plugin-utils/releases/tag/v${{ needs.version-check.outputs.new_version }}"
           echo "📚 Documentation: https://docs.rs/cargo-plugin-utils/${{ needs.version-check.outputs.new_version }}"
 
   build-and-upload-binaries:

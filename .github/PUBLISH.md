@@ -44,7 +44,7 @@ merge.
 
 2. Add to GitHub repository secrets:
    - Go to:
-     https://github.com/agnos-ai/cargo-plugin-utils/settings/secrets/actions
+     https://github.com/dataroadinc/cargo-plugin-utils/settings/secrets/actions
    - Click "New repository secret"
    - Name: `CRATES_IO_TOKEN`
    - Value: `<your-token-here>`
@@ -161,7 +161,7 @@ JSON
 
 After pushing your version bump:
 
-1. Go to: https://github.com/agnos-ai/cargo-plugin-utils/actions
+1. Go to: https://github.com/dataroadinc/cargo-plugin-utils/actions
 2. Watch the "CI/CD" workflow
 3. The "Release" job will show:
    - Changelog generation
@@ -176,7 +176,7 @@ After the workflow completes:
 
 ```bash
 # Check the new release
-open https://github.com/agnos-ai/cargo-plugin-utils/releases
+open https://github.com/dataroadinc/cargo-plugin-utils/releases
 
 # Check crates.io
 open https://crates.io/crates/cargo-plugin-utils

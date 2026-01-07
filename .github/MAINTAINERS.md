@@ -38,7 +38,7 @@ To ensure all commits are signed, configure branch protection rules:
 gh api repos/agnos-ai/cargo-plugin-utils/branches/main/protection
 
 # Or check in the web UI:
-# https://github.com/agnos-ai/cargo-plugin-utils/settings/branch_protection_rules
+# https://github.com/dataroadinc/cargo-plugin-utils/settings/branch_protection_rules
 ```
 
 ### Required Branch Protection Rules
