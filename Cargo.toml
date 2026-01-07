@@ -8,9 +8,9 @@ keywords = ["cargo", "plugin", "utilities", "logger", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
 authors = ["Jacobus Geluk <jacobus@dataroad.com>"]
-repository = "https://github.com/agnos-ai/cargo-plugin-utils"
+repository = "git@github.com:dataroadinc/cargo-plugin-utils.git"
 documentation = "https://docs.rs/cargo-plugin-utils"
-homepage = "https://github.com/agnos-ai/cargo-plugin-utils"
+homepage = "https://github.com/dataroadinc/cargo-plugin-utils"
 rust-version = "1.92.0"
 publish = true
 
