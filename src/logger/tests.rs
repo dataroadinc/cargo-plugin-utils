@@ -1,8 +1,9 @@
 //! Tests for logger module.
 //!
-//! Note: Tests that use PTY operations (test_run_subprocess_*) must be run
-//! with `--test-threads=1` to avoid concurrency issues with PTY operations.
-//! PTY operations are not thread-safe and can hang when run in parallel.
+//! Note: Tests that use PTY operations (test_run_subprocess_*) are skipped
+//! on Windows due to blocking read limitations that cannot be cancelled.
+//! On other platforms, these tests must be run with `--test-threads=1` to
+//! avoid concurrency issues with PTY operations.
 
 #[cfg(test)]
 mod tests {
@@ -73,6 +74,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(windows))]
     async fn test_run_subprocess_simple_success() {
         let mut logger = Logger::new();
         let output = run_subprocess(
@@ -95,6 +97,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(windows))]
     async fn test_run_subprocess_simple_failure() {
         let mut logger = Logger::new();
         let output = run_subprocess(
@@ -113,6 +116,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(windows))]
     async fn test_run_subprocess_multiline_output() {
         let mut logger = Logger::new();
         let output = run_subprocess(
@@ -136,6 +140,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(windows))]
     async fn test_run_subprocess_with_progress_bar() {
         let mut logger = Logger::new();
         logger.status("Preparing", "test");
@@ -160,6 +165,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(windows))]
     async fn test_run_subprocess_exit_code_preservation() {
         let mut logger = Logger::new();
         let output = run_subprocess(
@@ -180,6 +186,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(windows))]
     async fn test_run_subprocess_ansi_colors_preserved() {
         let mut logger = Logger::new();
         let output = run_subprocess(
@@ -202,6 +209,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(windows))]
     async fn test_run_subprocess_default_stderr_lines() {
         let mut logger = Logger::new();
         let output = run_subprocess(
@@ -220,6 +228,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(windows))]
     async fn test_run_subprocess_custom_stderr_lines() {
         let mut logger = Logger::new();
         let output = run_subprocess(
@@ -238,6 +247,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(windows))]
     async fn test_run_subprocess_nonexistent_command() {
         let mut logger = Logger::new();
         let result = run_subprocess(
