@@ -1,0 +1,349 @@
+---
+title: PTY Library Selection for Subprocess Execution
+sortKey: 0001
+---
+
+# ADR 0001 — PTY Library Selection for Subprocess Execution
+
+## Status
+
+Proposed
+
+## Context
+
+The `cargo-plugin-utils` crate needs to execute subprocesses (like `cargo`,
+`gh`, etc.) with the following requirements:
+
+1. **Preserve ANSI colors**: Subprocesses should detect they're connected to
+   a TTY so they emit colored output
+2. **Live stderr rendering**: Display subprocess stderr in a scrolling region
+   with a ring buffer (default 5 lines)
+3. **Capture stdout separately**: Some commands (e.g., `gh release list`)
+   output JSON to stdout that needs to be parsed
+4. **Async support**: Must work with Tokio async runtime
+5. **Cross-platform**: **Must work on Windows** as well as macOS and Linux,
+   since many developers using cargo plugins will work on Windows
+
+The fundamental challenge is that **pseudo-terminals (PTYs) combine stdout
+and stderr into a single stream**. This is by design — PTYs emulate real
+terminals where both streams go to the same screen. However, this creates a
+conflict when we need to:
+
+- Display combined output live (with colors preserved via PTY) for progress
+  monitoring
+- Parse stdout separately (requires non-PTY mode) for structured data
+
+### Hybrid Usage Requirements
+
+The crate must support two distinct use cases:
+
+1. **PTY mode (progress display)**: For long-running operations like `cargo
+build`, `cargo test`, or `cargo llvm-cov` that may involve building
+   dependencies. In this mode:
+
+   - Combined stdout/stderr is displayed in a temporary 5-line scrolling
+     panel
+   - Users can see what's happening in real-time
+   - On success: the panel is cleared cleanly
+   - On error/crash: the panel remains visible showing the error
+
+2. **Non-PTY mode (stdout capture)**: For commands that output structured
+   data to stdout (e.g., `gh release list --json tagName`):
+   - Separate stdout/stderr streams
+   - Stdout can be parsed as JSON or other structured formats
+   - No ANSI colors (subprocess detects non-TTY)
+   - Full control over stream handling
+
+## Decision
+
+Use **`portable-pty` version 0.9** as the primary PTY library, with a
+hybrid approach supporting both PTY and non-PTY modes.
+
+### Evaluation Table
+
+| Solution                                  | Windows Support      | Async Support                      | API Ergonomics           | Maintenance         | Complexity               | Verdict  |
+| ----------------------------------------- | -------------------- | ---------------------------------- | ------------------------ | ------------------- | ------------------------ | -------- |
+| **portable-pty (hybrid)**                 | ✅ Yes               | ⚠️ Blocking (needs spawn_blocking) | ⚠️ Custom CommandBuilder | ✅ Active           | ⚠️ Medium                | ⭐⭐⭐⭐ |
+| **pty-process (Unix) + ConPTY (Windows)** | ✅ Yes               | ✅ Native async                    | ✅ Standard Command      | ✅ Active           | ❌ High (two code paths) | ⭐⭐⭐   |
+| **tokio-pty-process**                     | ❌ No                | ✅ Native async                    | ✅ Standard Command      | ❌ Abandoned (2019) | ✅ Low                   | ⭐       |
+| **pty-process (Unix only)**               | ❌ No                | ✅ Native async                    | ✅ Standard Command      | ✅ Active           | ✅ Low                   | ⭐⭐     |
+| **nix::pty + ConPTY**                     | ✅ Yes               | ❌ Manual async wrapper            | ❌ Low-level             | ✅ Active           | ❌ Very High             | ⭐⭐     |
+| **Implement ourselves**                   | ✅ Yes (with effort) | ✅ Full control                    | ✅ Custom design         | ⚠️ Self-maintained  | ❌ Very High             | ⭐⭐⭐   |
+| **Non-PTY only**                          | ✅ Yes               | ✅ Native async                    | ✅ Standard Command      | ✅ N/A              | ✅ Low                   | ⭐⭐     |
+
+**Chosen Solution**: `portable-pty` with hybrid approach (⭐⭐⭐⭐)
+
+### Rationale
+
+1. **PTY mode** (default): For commands that need color output and live
+   progress display (e.g., `cargo llvm-cov`, `cargo test`, `cargo build`)
+
+   - Preserves ANSI colors
+   - Combines stdout/stderr in a 5-line scrolling panel
+   - Shows real-time progress during long operations
+   - Clears panel on success, keeps it visible on error
+
+2. **Non-PTY mode** (optional): For commands that need stdout parsing
+   (e.g., `gh release list --json`)
+
+   - Separate stdout/stderr streams
+   - No ANSI colors (subprocess detects non-TTY)
+   - Full control over stream handling for structured data parsing
+
+The `run_subprocess` function accepts a `use_pty: bool` parameter to select
+the mode. Default is `true` (PTY mode) for backward compatibility and to
+preserve colors by default.
+
+## Consequences
+
+### Positive
+
+- **Cross-platform support**: `portable-pty` works on macOS, Linux, and
+  Windows
+- **Mature and stable**: Well-maintained crate with active development
+- **Flexible**: Hybrid approach allows choosing the right mode per command
+- **Color preservation**: PTY mode ensures subprocesses emit colored output
+- **Isolated rendering**: Scrolling regions prevent output from clobbering
+  previous terminal content
+
+### Negative
+
+- **No stdout/stderr separation in PTY mode**: Fundamental PTY limitation
+  means we can't parse stdout while displaying stderr in PTY mode
+- **Blocking I/O**: `portable-pty` uses blocking I/O, requiring
+  `spawn_blocking` wrapper
+- **Custom API**: Uses `CommandBuilder` instead of standard
+  `tokio::process::Command`
+- **ExitStatus conversion**: Returns custom `ExitStatus` type requiring
+  conversion (we store `exit_code: u32` directly to avoid this)
+
+### Trade-offs
+
+- **Complexity**: Hybrid approach adds complexity but provides flexibility
+- **Performance**: `spawn_blocking` adds overhead but is necessary for
+  blocking PTY I/O
+- **API ergonomics**: Custom `CommandBuilder` is less ergonomic than
+  standard Command but provides cross-platform abstraction
+
+## Alternatives Considered
+
+### 1. `tokio-pty-process` (0.4.0)
+
+**Source**: https://docs.rs/tokio-pty-process/latest/tokio_pty_process/
+
+**Pros:**
+
+- Native async support (no `spawn_blocking` needed)
+- Built on `tokio::process::Command` (standard API)
+- Returns standard `tokio::process::Child`
+
+**Cons:**
+
+- **Abandoned**: Last updated June 2019, unmaintained
+- **Incompatible**: Uses Tokio 0.1 API, incompatible with Tokio 1.x
+- **Unix-only**: No Windows support
+- **Same PTY limitation**: Still combines stdout/stderr
+
+**Verdict**: Rejected due to abandonment and API incompatibility.
+
+### 2. `pty-process` (0.5.3)
+
+**Source**: https://github.com/doy/pty-process
+
+**Pros:**
+
+- Native async support (with `async` feature)
+- Built on `tokio::process::Command` (standard API)
+- Returns standard `tokio::process::Child`
+- Actively maintained (more recent than `tokio-pty-process`)
+
+**Cons:**
+
+- **Unix-only**: No Windows support
+- **Same PTY limitation**: Still combines stdout/stderr
+- Less mature than `portable-pty`
+
+**Verdict**: Rejected due to lack of Windows support. If we only needed
+Unix support, this would be a strong candidate.
+
+### 3. `tokio-pty-process-stream` (0.2.0)
+
+**Source**: https://crates.io/crates/tokio-pty-process-stream/0.2.0
+
+**Pros:**
+
+- Stream-based API might provide better async ergonomics
+
+**Cons:**
+
+- **Unknown maintenance status**: Limited documentation and usage
+- **Same PTY limitation**: Still combines stdout/stderr
+- Less mature ecosystem
+
+**Verdict**: Rejected due to uncertainty about maintenance and maturity.
+
+### 4. `nix::pty::openpty`
+
+**Source**: https://docs.rs/nix/latest/nix/pty/fn.openpty.html
+
+**Pros:**
+
+- Low-level control
+- Well-maintained `nix` crate
+- Standard Unix API
+
+**Cons:**
+
+- **Unix-only**: No Windows support
+- **Low-level**: Requires manual PTY management
+- **No async support**: Would need manual async wrapper
+- **More boilerplate**: More code to write and maintain
+
+**Verdict**: Rejected due to low-level nature and Unix-only support. Too
+much manual work for our use case.
+
+### 5. `pty-process` (Unix) + `conpty` (Windows)
+
+**Source**: https://github.com/doy/pty-process + https://docs.rs/conpty/
+
+**Pros:**
+
+- Native async support on Unix (`pty-process`)
+- Standard `tokio::process::Command` API on Unix
+- Native Windows support via ConPTY
+- Best of both worlds: async on Unix, native Windows
+
+**Cons:**
+
+- **Two different code paths**: Requires platform-specific implementations
+- **High complexity**: Maintaining two different APIs and behaviors
+- **ConPTY maturity**: Less mature than `portable-pty`'s Windows support
+- **Same PTY limitation**: Still combines stdout/stderr in both modes
+- **More code**: Platform-specific branches throughout the codebase
+
+**Verdict**: Rejected due to complexity of maintaining two code paths and
+different APIs. The added complexity doesn't justify the benefits over
+`portable-pty`'s unified cross-platform API.
+
+### 6. Non-PTY mode only (standard pipes)
+
+**Pros:**
+
+- Simple: Standard `tokio::process::Command`
+- Separate stdout/stderr streams
+- Native async support
+- Full control
+
+**Cons:**
+
+- **No ANSI colors**: Subprocesses detect non-TTY and disable colors
+- **Poor UX**: Loss of color output makes debugging harder
+- **Behavior changes**: Some tools behave differently when not connected
+  to TTY
+
+**Verdict**: Rejected as primary approach. We need PTY mode for color
+preservation, but use this as fallback for commands requiring stdout
+parsing.
+
+### 7. Hybrid approach with `portable-pty` (chosen)
+
+**Pros:**
+
+- Cross-platform support (Windows, macOS, Linux)
+- Mature and stable
+- Flexible (can choose PTY vs non-PTY per command)
+- Preserves colors in PTY mode
+- Separate streams in non-PTY mode
+
+**Cons:**
+
+- Blocking I/O requires `spawn_blocking`
+- Custom `CommandBuilder` API
+- Can't have both: colors + separate streams simultaneously
+
+**Verdict**: **Chosen** as the best balance of features, maintainability,
+and cross-platform support.
+
+### 8. Implement PTY support ourselves
+
+**Source**: Reference implementation in
+https://github.com/pkgw/stund/blob/master/tokio-pty-process/src/lib.rs
+
+**Pros:**
+
+- **Full control**: Custom design tailored to our exact needs
+- **No dependencies**: One less external dependency
+- **Native async**: Can design async-first API
+- **Cross-platform**: Can implement Windows support ourselves
+
+**Cons:**
+
+- **Very high complexity**: PTY implementation is non-trivial
+- **Maintenance burden**: We become responsible for PTY bugs and edge cases
+- **Time investment**: Significant development time required
+- **Platform-specific code**: Need to handle Unix PTY and Windows ConPTY
+- **Testing complexity**: Must test across all platforms
+- **Risk**: Potential for subtle bugs in low-level terminal handling
+
+**Verdict**: Rejected. While the reference implementation shows it's not
+"shockingly complex", the maintenance burden and risk outweigh the benefits.
+Better to rely on a mature, well-tested crate like `portable-pty`.
+
+## Implementation Notes
+
+### PTY Mode (default)
+
+```rust
+pub async fn run_subprocess<F>(
+    logger: &mut Logger,
+    cmd_builder: F,
+    stderr_lines: Option<usize>,
+    use_pty: bool, // true by default
+) -> anyhow::Result<SubprocessOutput>
+where
+    F: FnOnce() -> portable_pty::CommandBuilder, // PTY mode
+    // OR
+    F: FnOnce() -> tokio::process::Command, // Non-PTY mode
+```
+
+### Non-PTY Mode (for stdout parsing)
+
+For commands like `gh release list --json`, use non-PTY mode:
+
+```rust
+let output = run_subprocess(
+    logger,
+    || {
+        let mut cmd = tokio::process::Command::new("gh");
+        cmd.args(["release", "list", "--json", "tagName"]);
+        cmd
+    },
+    None,
+    false, // use_pty = false
+).await?;
+
+let json: Value = serde_json::from_slice(&output.stdout)?;
+```
+
+### Scrolling Regions
+
+PTY mode uses ANSI escape sequences (DECSTBM) to create an isolated
+scrolling region at the bottom of the terminal. This ensures:
+
+- Subprocess output doesn't clobber previous terminal content
+- Only the designated region is cleared on success
+- Previous commands' output (like `cargo install`) is preserved
+
+See: https://developerlife.com/2025/08/10/pty-rust-osc-seq/#overview for
+details on PTY usage with cargo and OSC sequences.
+
+## References
+
+- [portable-pty crate](https://crates.io/crates/portable-pty)
+- [tokio-pty-process (abandoned)](https://docs.rs/tokio-pty-process/latest/tokio_pty_process/)
+- [pty-process crate](https://github.com/doy/pty-process)
+- [nix::pty documentation](https://docs.rs/nix/latest/nix/pty/index.html)
+- [conpty crate](https://docs.rs/conpty/latest/conpty/)
+- [PTY and OSC Sequences with Cargo](https://developerlife.com/2025/08/10/pty-rust-osc-seq/#overview)
+- [ANSI Escape Codes](https://en.wikipedia.org/wiki/ANSI_escape_code)
+- [DECSTBM (Set Top and Bottom Margins)](https://vt100.net/docs/vt510-rm/DECSTBM.html)

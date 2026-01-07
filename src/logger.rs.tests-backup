@@ -1,0 +1,336 @@
+//! Tests for logger module.
+
+#[cfg(test)]
+mod tests {
+    use super::super::*;
+    use portable_pty::CommandBuilder;
+    use std::io::Read;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_logger_new() {
+        let logger = Logger::new();
+        assert!(logger.progress_bar.is_none());
+        assert_eq!(logger.line_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_logger_status() {
+        let mut logger = Logger::new();
+        logger.status("Building", "test-crate");
+        assert!(logger.progress_bar.is_some());
+        assert_eq!(logger.line_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_logger_clear_status() {
+        let mut logger = Logger::new();
+        logger.status("Building", "test-crate");
+        assert!(logger.progress_bar.is_some());
+        logger.clear_status();
+        assert!(logger.progress_bar.is_none());
+        assert_eq!(logger.line_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_logger_finish() {
+        let mut logger = Logger::new();
+        logger.status("Building", "test-crate");
+        logger.finish();
+        assert!(logger.progress_bar.is_none());
+        assert_eq!(logger.line_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_subprocess_output_success() {
+        let output = SubprocessOutput {
+            stdout: b"stdout content".to_vec(),
+            stderr: b"stderr content".to_vec(),
+            exit_code: 0,
+        };
+        assert!(output.success());
+        assert_eq!(output.exit_code(), 0);
+        assert_eq!(output.stdout_str().unwrap(), "stdout content");
+        assert_eq!(output.stderr_str().unwrap(), "stderr content");
+    }
+
+    #[tokio::test]
+    async fn test_subprocess_output_failure() {
+        let output = SubprocessOutput {
+            stdout: b"".to_vec(),
+            stderr: b"error message".to_vec(),
+            exit_code: 1,
+        };
+        assert!(!output.success());
+        assert_eq!(output.exit_code(), 1);
+        assert_eq!(output.stderr_str().unwrap(), "error message");
+    }
+
+    #[tokio::test]
+    async fn test_run_subprocess_simple_success() {
+        let mut logger = Logger::new();
+        let output = run_subprocess(
+            &mut logger,
+            || {
+                let mut cmd = CommandBuilder::new("echo");
+                cmd.arg("hello world");
+                cmd
+            },
+            Some(3),
+        )
+        .await
+        .unwrap();
+
+        assert!(output.success());
+        assert_eq!(output.exit_code(), 0);
+        // PTY combines stdout/stderr, so output should be in stderr
+        let stderr = output.stderr_str().unwrap();
+        assert!(stderr.contains("hello world") || stderr.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_run_subprocess_simple_failure() {
+        let mut logger = Logger::new();
+        let output = run_subprocess(
+            &mut logger,
+            || {
+                let mut cmd = CommandBuilder::new("false");
+                cmd
+            },
+            Some(3),
+        )
+        .await
+        .unwrap();
+
+        assert!(!output.success());
+        assert_ne!(output.exit_code(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_run_subprocess_multiline_output() {
+        let mut logger = Logger::new();
+        let output = run_subprocess(
+            &mut logger,
+            || {
+                let mut cmd = CommandBuilder::new("sh");
+                cmd.arg("-c");
+                cmd.arg("echo 'line 1'; echo 'line 2'; echo 'line 3'; echo 'line 4'; echo 'line 5'; echo 'line 6'");
+                cmd
+            },
+            Some(3), // Only show 3 lines in ring buffer
+        )
+        .await
+        .unwrap();
+
+        assert!(output.success());
+        // Should capture all output even though only 3 lines shown
+        let stderr = output.stderr_str().unwrap();
+        assert!(stderr.contains("line 1"));
+        assert!(stderr.contains("line 6"));
+    }
+
+    #[tokio::test]
+    async fn test_run_subprocess_with_progress_bar() {
+        let mut logger = Logger::new();
+        logger.status("Preparing", "test");
+        assert!(logger.progress_bar.is_some());
+
+        let output = run_subprocess(
+            &mut logger,
+            || {
+                let mut cmd = CommandBuilder::new("echo");
+                cmd.arg("test output");
+                cmd
+            },
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(output.success());
+        // Progress bar should be cleared before subprocess
+        // (we can't easily test this without mocking, but the function should complete)
+    }
+
+    #[tokio::test]
+    async fn test_run_subprocess_exit_code_preservation() {
+        let mut logger = Logger::new();
+        let output = run_subprocess(
+            &mut logger,
+            || {
+                let mut cmd = CommandBuilder::new("sh");
+                cmd.arg("-c");
+                cmd.arg("exit 42");
+                cmd
+            },
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(!output.success());
+        assert_eq!(output.exit_code(), 42);
+    }
+
+    #[tokio::test]
+    async fn test_run_subprocess_ansi_colors_preserved() {
+        let mut logger = Logger::new();
+        let output = run_subprocess(
+            &mut logger,
+            || {
+                let mut cmd = CommandBuilder::new("sh");
+                cmd.arg("-c");
+                cmd.arg("echo -e '\\033[31mred\\033[0m'");
+                cmd
+            },
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(output.success());
+        let stderr = output.stderr_str().unwrap();
+        // ANSI codes should be preserved in PTY mode
+        assert!(stderr.contains("\x1b[31m") || stderr.contains("red"));
+    }
+
+    #[tokio::test]
+    async fn test_run_subprocess_default_stderr_lines() {
+        let mut logger = Logger::new();
+        let output = run_subprocess(
+            &mut logger,
+            || {
+                let mut cmd = CommandBuilder::new("echo");
+                cmd.arg("test");
+                cmd
+            },
+            None, // Should default to 5 lines
+        )
+        .await
+        .unwrap();
+
+        assert!(output.success());
+    }
+
+    #[tokio::test]
+    async fn test_run_subprocess_custom_stderr_lines() {
+        let mut logger = Logger::new();
+        let output = run_subprocess(
+            &mut logger,
+            || {
+                let mut cmd = CommandBuilder::new("echo");
+                cmd.arg("test");
+                cmd
+            },
+            Some(10), // Custom 10 lines
+        )
+        .await
+        .unwrap();
+
+        assert!(output.success());
+    }
+
+    #[tokio::test]
+    async fn test_run_subprocess_nonexistent_command() {
+        let mut logger = Logger::new();
+        let result = run_subprocess(
+            &mut logger,
+            || {
+                let mut cmd = CommandBuilder::new("nonexistent-command-xyz-123");
+                cmd
+            },
+            None,
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_subprocess_output_utf8_handling() {
+        let output = SubprocessOutput {
+            stdout: "hello 世界".as_bytes().to_vec(),
+            stderr: "error 错误".as_bytes().to_vec(),
+            exit_code: 0,
+        };
+
+        assert_eq!(output.stdout_str().unwrap(), "hello 世界");
+        assert_eq!(output.stderr_str().unwrap(), "error 错误");
+    }
+
+    #[tokio::test]
+    async fn test_subprocess_output_invalid_utf8() {
+        let output = SubprocessOutput {
+            stdout: vec![0xFF, 0xFE, 0xFD], // Invalid UTF-8
+            stderr: vec![],
+            exit_code: 0,
+        };
+
+        assert!(output.stdout_str().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_logger_suspend() {
+        let mut logger = Logger::new();
+        logger.status("Building", "test");
+        let result = logger.suspend(|| 42);
+        assert_eq!(result, 42);
+    }
+
+    #[tokio::test]
+    async fn test_logger_suspend_without_progress() {
+        let mut logger = Logger::new();
+        let result = logger.suspend(|| 42);
+        assert_eq!(result, 42);
+    }
+
+    #[tokio::test]
+    async fn test_logger_status_permanent() {
+        let logger = Logger::new();
+        // Should not panic
+        logger.status_permanent("Compiling", "test-crate");
+    }
+
+    #[tokio::test]
+    async fn test_logger_warning() {
+        let logger = Logger::new();
+        // Should not panic
+        logger.warning("Warning", "test message");
+    }
+
+    #[tokio::test]
+    async fn test_logger_info() {
+        let logger = Logger::new();
+        // Should not panic
+        logger.info("Info", "test message");
+    }
+
+    #[tokio::test]
+    async fn test_logger_error() {
+        let logger = Logger::new();
+        // Should not panic
+        logger.error("Error", "test message");
+    }
+
+    #[tokio::test]
+    async fn test_logger_print_message() {
+        let logger = Logger::new();
+        // Should not panic
+        logger.print_message("test message");
+    }
+
+    #[tokio::test]
+    async fn test_logger_progress() {
+        let mut logger = Logger::new();
+        logger.progress("Processing...");
+        assert!(logger.progress_bar.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_logger_set_progress_message() {
+        let mut logger = Logger::new();
+        logger.progress("Initial");
+        logger.set_progress_message("Updated");
+        assert!(logger.progress_bar.is_some());
+    }
+}

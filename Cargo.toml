@@ -1,0 +1,51 @@
+[package]
+name = "cargo-plugin-utils"
+description = "Shared utilities for cargo plugins (logger, subprocess handling, common functions)"
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+keywords = ["cargo", "plugin", "utilities", "logger", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+authors = ["Jacobus Geluk <jacobus@dataroad.com>"]
+repository = "https://github.com/agnos-ai/cargo-plugin-utils"
+documentation = "https://docs.rs/cargo-plugin-utils"
+homepage = "https://github.com/agnos-ai/cargo-plugin-utils"
+rust-version = "1.92.0"
+publish = true
+
+exclude = [
+    ".cargo/",
+    ".cargo-husky/",
+    ".clippy.toml",
+    ".cursor/",
+    ".github/",
+    ".gitignore",
+    ".rust-toolchain.toml",
+    ".vscode/",
+    "cog.toml",
+    "rustfmt.toml",
+    "scripts/",
+]
+
+[dependencies]
+anyhow = "1.0.100"
+atty = "0.2.14"
+cargo_metadata = "0.23.1"
+gix = { version = "0.77.0", default-features = false, features = ["revision"] }
+console = "0.16.2"
+indicatif = "0.18.3"
+carlog = "0.1"
+portable-pty = "0.9.0"
+tokio = { version = "1", features = [
+    "rt",
+    "macros",
+    "rt-multi-thread",
+    "process",
+    "io-util",
+    "sync",
+    "time",
+] }
+
+[dev-dependencies]
+tempfile = "3.10"
