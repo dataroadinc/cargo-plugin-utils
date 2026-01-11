@@ -1,0 +1,12 @@
+{
+    "fileheader.configObj": {
+        "autoAdd": false
+    },
+    "markdownlint.ignore": [
+        "**/LICENSE",
+        "LICENSE"
+    ],
+    "files.associations": {
+        "LICENSE": "plaintext"
+    }
+}
