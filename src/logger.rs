@@ -382,6 +382,8 @@ where
 
     // Task to read from PTY (combines stdout and stderr)
     // PTY reader is blocking, so we use spawn_blocking
+    // Allow excessive nesting: inherent to async spawn + spawn_blocking + loop + match pattern
+    #[allow(clippy::excessive_nesting)]
     let pty_task = tokio::spawn(async move {
         tokio::task::spawn_blocking(move || {
             let mut full_output = Vec::new();
@@ -390,8 +392,8 @@ where
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) => break, // EOF
-                    Ok(n) => {
-                        let chunk = &buffer[..n];
+                    Ok(bytes_read) => {
+                        let chunk = &buffer[..bytes_read];
                         full_output.extend_from_slice(chunk);
                         // Also collect in shared buffer for timeout fallback
                         if let Ok(mut collected) = collected_output_clone.lock() {
@@ -399,9 +401,9 @@ where
                         }
                         let _ = tx.send(chunk.to_vec());
                     }
-                    Err(e) => {
+                    Err(err) => {
                         // On error, still capture what we have
-                        let error_msg = format!("<pty read error: {}>", e);
+                        let error_msg = format!("<pty read error: {}>", err);
                         let error_bytes = error_msg.as_bytes();
                         full_output.extend_from_slice(error_bytes);
                         if let Ok(mut collected) = collected_output_clone.lock() {
@@ -434,15 +436,12 @@ where
             // Split buffer into complete lines (preserving ANSI codes)
             let mut lines: Vec<Vec<u8>> = Vec::new();
             let mut current_line = Vec::new();
-            let mut i = 0;
-            while i < output_buffer.len() {
-                let byte = output_buffer[i];
+            for byte in output_buffer.iter().copied() {
                 current_line.push(byte);
                 if byte == b'\n' {
                     lines.push(current_line);
                     current_line = Vec::new();
                 }
-                i += 1;
             }
             output_buffer = current_line;
 
