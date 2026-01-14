@@ -2,6 +2,10 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.0.6](https://github.com/agnos-ai/cargo-plugin-utils/compare/v0.0.5..v0.0.6) - 2026-01-14
+
+- - -
+
 ## [v0.0.5](https://github.com/agnos-ai/cargo-plugin-utils/compare/7afaa0530d88553f887476707a719c396a75fe21..v0.0.5) - 2026-01-14
 #### Bug Fixes
 - (**hooks**) add markdownlint check to pre-commit hook - ([b7066c6](https://github.com/agnos-ai/cargo-plugin-utils/commit/b7066c6fb6f090de0de7dc8dac4d231387565583)) - [@jgeluk](https://github.com/jgeluk)
