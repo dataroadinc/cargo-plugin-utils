@@ -382,7 +382,8 @@ where
 
     // Task to read from PTY (combines stdout and stderr)
     // PTY reader is blocking, so we use spawn_blocking
-    // Allow excessive nesting: inherent to async spawn + spawn_blocking + loop + match pattern
+    // Allow excessive nesting: inherent to async spawn + spawn_blocking + loop +
+    // match pattern
     #[allow(clippy::excessive_nesting)]
     let pty_task = tokio::spawn(async move {
         tokio::task::spawn_blocking(move || {
