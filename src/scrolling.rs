@@ -82,6 +82,18 @@ mod tests {
     }
 
     #[test]
+    fn test_set_scrolling_region_single_line() {
+        // Test setting a single-line scrolling region
+        let _ = set_scrolling_region(5u16, 5u16);
+    }
+
+    #[test]
+    fn test_set_scrolling_region_large() {
+        // Test setting a large scrolling region
+        let _ = set_scrolling_region(1u16, 1000u16);
+    }
+
+    #[test]
     fn test_reset_scrolling_region() {
         // Test that it doesn't panic
         let _ = reset_scrolling_region();
@@ -100,11 +112,62 @@ mod tests {
     }
 
     #[test]
+    fn test_move_cursor_to_line_first() {
+        // Test moving to line 1
+        let _ = move_cursor_to_line(1u16);
+    }
+
+    #[test]
+    fn test_move_cursor_to_line_large() {
+        // Test moving to a large line number
+        let _ = move_cursor_to_line(1000u16);
+    }
+
+    #[test]
     fn test_scrolling_region_sequence() {
         // Test a sequence of operations
         let _ = set_scrolling_region(1u16, 5u16);
         let _ = move_cursor_to_line(1u16);
         let _ = clear_scrolling_region();
         let _ = reset_scrolling_region();
+    }
+
+    #[test]
+    fn test_scrolling_region_typical_usage() {
+        // Simulate typical usage: set region at bottom of terminal
+        // Assuming 24 rows, reserve last 5 lines for scrolling output
+        let term_rows = 24u16;
+        let scroll_lines = 5u16;
+        let region_top = term_rows - scroll_lines + 1; // 20
+
+        let _ = set_scrolling_region(region_top, term_rows);
+        let _ = move_cursor_to_line(region_top);
+        // ... subprocess output would go here ...
+        let _ = clear_scrolling_region();
+        let _ = reset_scrolling_region();
+    }
+
+    #[test]
+    fn test_scrolling_region_full_terminal() {
+        // Test setting scrolling region to entire terminal
+        let _ = set_scrolling_region(1u16, 24u16);
+        let _ = reset_scrolling_region();
+    }
+
+    #[test]
+    fn test_multiple_cursor_moves() {
+        // Test multiple cursor moves
+        for line in 1u16..=10 {
+            let _ = move_cursor_to_line(line);
+        }
+    }
+
+    #[test]
+    fn test_set_and_reset_multiple_times() {
+        // Test setting and resetting multiple times
+        for idx in 1u16..=5 {
+            let _ = set_scrolling_region(idx, idx + 10);
+            let _ = reset_scrolling_region();
+        }
     }
 }
