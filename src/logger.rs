@@ -16,14 +16,6 @@ use portable_pty::{
     native_pty_system,
 };
 
-use crate::scrolling::{
-    clear_scrolling_region,
-    get_terminal_size,
-    move_cursor_to_line,
-    reset_scrolling_region,
-    set_scrolling_region,
-};
-
 /// Logger for handling output with cargo-style progress and status messages.
 ///
 /// All progress and status messages go to stderr (matching cargo's behavior).
@@ -306,39 +298,29 @@ where
     F: FnOnce() -> CommandBuilder,
 {
     let stderr_lines = stderr_lines.unwrap_or(5);
-    // Suspend/clear progress bar before subprocess
-    let had_progress = logger.progress_bar.is_some();
-    if had_progress {
-        logger.clear_status();
-    }
 
     let term = console::Term::stderr();
     let is_term = term.is_term();
 
-    // Get terminal size to set up scrolling region
-    let (term_rows, _term_cols) = if is_term {
-        get_terminal_size().unwrap_or((24u16, 80u16))
-    } else {
-        (24u16, 80u16) // Default if not a terminal
-    };
-
-    // Set up scrolling region at the bottom of the terminal
-    // The region will be the last `stderr_lines` lines
-    let stderr_lines_u16 = stderr_lines as u16;
-    let region_top = if stderr_lines_u16 < term_rows {
-        term_rows - stderr_lines_u16 + 1 // 1-indexed
-    } else {
-        1 // If stderr_lines >= term_rows, use entire terminal
-    };
-    let region_bottom = term_rows;
-
-    // Set scrolling region if we're in a terminal
+    // Clear any existing Logger output before subprocess to avoid cursor
+    // position conflicts. The scrolling region will change cursor position,
+    // so Logger's Drop wouldn't be able to clear its lines correctly.
     if is_term {
-        set_scrolling_region(region_top, region_bottom)
-            .context("Failed to set scrolling region")?;
-        // Move cursor to the top of the scrolling region
-        move_cursor_to_line(region_top).context("Failed to move cursor to scrolling region")?;
+        // Clear progress bar if present
+        if let Some(pb) = logger.progress_bar.take() {
+            pb.finish_and_clear();
+        }
+        // Clear any status lines the Logger has printed
+        if logger.line_count > 0 {
+            let _ = term.clear_last_lines(logger.line_count);
+            logger.line_count = 0;
+        }
     }
+
+    // Track how many lines we've drawn for cleanup
+    let stderr_lines_u16 = stderr_lines as u16;
+    let lines_drawn = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let lines_drawn_render = lines_drawn.clone();
 
     // Build command using portable-pty
     let cmd = cmd_builder();
@@ -425,12 +407,17 @@ where
         .context("Failed to join blocking PTY read task")?
     });
 
-    // Render output in scrolling region (preserving ANSI codes)
+    // Render output inline (below current cursor position)
     let mut output_buffer = Vec::new();
     let mut output_ring: Vec<Vec<u8>> = Vec::with_capacity(stderr_lines);
 
     // Process output bytes as they arrive
+    // Allow excessive nesting: inherent to async spawn with nested loops and
+    // conditionals
+    #[allow(clippy::excessive_nesting)]
     let render_task = tokio::spawn(async move {
+        let mut current_lines_displayed: usize = 0;
+
         while let Some(chunk) = rx.recv().await {
             output_buffer.extend_from_slice(&chunk);
 
@@ -454,18 +441,30 @@ where
                 }
             }
 
-            // Render ring buffer after processing all lines in this chunk
+            // Render ring buffer inline (below current position)
             if is_term && !output_ring.is_empty() {
-                // Clear the scrolling region and redraw
-                move_cursor_to_line(region_top).ok();
-                clear_scrolling_region().ok();
+                let mut stderr_handle = std::io::stderr();
+
+                // Move cursor up to clear previous output (if any)
+                if current_lines_displayed > 0 {
+                    // Move up and clear each line
+                    write!(stderr_handle, "\x1b[{}A", current_lines_displayed).ok();
+                    for _ in 0..current_lines_displayed {
+                        write!(stderr_handle, "\x1b[2K\x1b[1B").ok(); // Clear line, move down
+                    }
+                    // Move back up to start position
+                    write!(stderr_handle, "\x1b[{}A", current_lines_displayed).ok();
+                }
 
                 // Write all lines in the ring buffer (preserving ANSI codes)
-                let mut stderr_handle = std::io::stderr();
                 for line_bytes in &output_ring {
                     let _ = stderr_handle.write_all(line_bytes);
                 }
                 let _ = stderr_handle.flush();
+
+                current_lines_displayed = output_ring.len();
+                lines_drawn_render
+                    .store(current_lines_displayed, std::sync::atomic::Ordering::SeqCst);
             }
         }
 
@@ -476,14 +475,24 @@ where
                 output_ring.remove(0);
             }
             if is_term {
-                // Render final ring buffer state
-                move_cursor_to_line(region_top).ok();
-                clear_scrolling_region().ok();
                 let mut stderr_handle = std::io::stderr();
+
+                // Move cursor up to clear previous output (if any)
+                if current_lines_displayed > 0 {
+                    write!(stderr_handle, "\x1b[{}A", current_lines_displayed).ok();
+                    for _ in 0..current_lines_displayed {
+                        write!(stderr_handle, "\x1b[2K\x1b[1B").ok();
+                    }
+                    write!(stderr_handle, "\x1b[{}A", current_lines_displayed).ok();
+                }
+
+                // Render final ring buffer state
                 for line_bytes in &output_ring {
                     let _ = stderr_handle.write_all(line_bytes);
                 }
                 let _ = stderr_handle.flush();
+
+                lines_drawn_render.store(output_ring.len(), std::sync::atomic::Ordering::SeqCst);
             }
         }
 
@@ -553,19 +562,20 @@ where
     let stdout_bytes = Vec::new(); // PTY combines stdout/stderr, so we'll capture all as stderr
     let stderr_bytes = pty_output;
 
-    // Handle final rendering based on success/failure
+    // Handle final cleanup
     let exit_code = status.exit_code();
-    let success = exit_code == 0;
+    let final_lines_drawn = lines_drawn.load(std::sync::atomic::Ordering::SeqCst);
 
-    if was_term {
-        if success {
-            // Success: clear the scrolling region
-            clear_scrolling_region().ok();
-        } else {
-            // Failure: ensure final window is visible (it should already be)
-            // Just reset the scrolling region to restore normal scrolling
-            reset_scrolling_region().ok();
+    if was_term && final_lines_drawn > 0 {
+        // Clear the lines we drew by moving up and clearing each line
+        let mut stderr_handle = std::io::stderr();
+        write!(stderr_handle, "\x1b[{}A", final_lines_drawn).ok();
+        for _ in 0..final_lines_drawn {
+            write!(stderr_handle, "\x1b[2K\x1b[1B").ok(); // Clear line, move down
         }
+        // Move back up to where we started
+        write!(stderr_handle, "\x1b[{}A", final_lines_drawn).ok();
+        let _ = stderr_handle.flush();
     }
 
     Ok(SubprocessOutput {
