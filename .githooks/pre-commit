@@ -13,3 +13,16 @@ if [ -n "$staged_rs_files" ]; then
         exit 1
     fi
 fi
+
+# Check formatting of staged Markdown files
+staged_md_files=$(git diff --cached --name-only --diff-filter=ACM -- '*.md')
+if [ -n "$staged_md_files" ]; then
+    if command -v markdownlint >/dev/null 2>&1; then
+        echo "Checking formatting of staged Markdown files..."
+        echo "$staged_md_files" | xargs markdownlint
+        if [ $? -ne 0 ]; then
+            echo "Markdown lint failed. Fix the issues above."
+            exit 1
+        fi
+    fi
+fi
