@@ -1,5 +1,7 @@
 //! TTY detection utilities for respecting cargo's progress settings.
 
+use std::io::IsTerminal;
+
 /// Check if progress should be shown based on cargo's term.progress.when
 /// setting (respects CARGO_TERM_PROGRESS_WHEN environment variable).
 ///
@@ -32,11 +34,11 @@ pub fn should_show_progress() -> bool {
         "always" => true,
         "auto" => {
             // Auto: show if stdout is a TTY (interactive terminal)
-            atty::is(atty::Stream::Stdout)
+            std::io::stdout().is_terminal()
         }
         _ => {
             // Default to auto behavior for unknown values
-            atty::is(atty::Stream::Stdout)
+            std::io::stdout().is_terminal()
         }
     }
 }

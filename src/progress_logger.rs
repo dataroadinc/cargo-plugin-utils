@@ -1,5 +1,7 @@
 //! Progress bar logger for cargo-style output with quiet mode support.
 
+use std::io::IsTerminal;
+
 use indicatif::{
     ProgressBar,
     ProgressStyle,
@@ -44,11 +46,11 @@ impl ProgressLogger {
             "always" => true,
             "auto" => {
                 // Auto: show if stdout is a TTY (interactive terminal)
-                atty::is(atty::Stream::Stdout)
+                std::io::stdout().is_terminal()
             }
             _ => {
                 // Default to auto behavior for unknown values
-                atty::is(atty::Stream::Stdout)
+                std::io::stdout().is_terminal()
             }
         }
     }

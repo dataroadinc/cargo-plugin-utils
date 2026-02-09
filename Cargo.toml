@@ -30,7 +30,6 @@ exclude = [
 
 [dependencies]
 anyhow = "1.0.100"
-atty = "0.2.14"
 cargo_metadata = "0.23.1"
 gix = { version = "0.77.0", default-features = false, features = ["revision"] }
 console = "0.16.2"
