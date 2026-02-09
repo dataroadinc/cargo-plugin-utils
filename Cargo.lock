@@ -94,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-plugin-utils"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "anyhow",
  "cargo_metadata",
