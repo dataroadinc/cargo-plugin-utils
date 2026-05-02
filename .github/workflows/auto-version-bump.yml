@@ -96,10 +96,59 @@ jobs:
             echo "Deleted local tag $TAG (CI will create it after tests pass)"
           fi
 
-      - name: Push changes (without tags)
+      - name: Push verified commit via GraphQL
+        # Use createCommitOnBranch so the commit is signed by GitHub's
+        # web-flow key — required by the "signed-commits" ruleset on main.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EXPECTED_OID: ${{ github.sha }}
         run: |
-          git push
-          echo "✅ Pushed commit for version $NEW_VERSION (tag will be created by CI after tests pass)"
+          export HEADLINE=$(git log -1 --pretty=%s HEAD)
+          export BODY=$(git log -1 --pretty=%b HEAD)
+
+          python3 <<'PY' > /tmp/payload.json
+          import base64, json, os, pathlib
+          def b64(p): return base64.b64encode(pathlib.Path(p).read_bytes()).decode()
+          msg = {"headline": os.environ["HEADLINE"]}
+          body = os.environ.get("BODY", "").strip()
+          if body:
+              msg["body"] = body
+          payload = {
+              "query": "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid url } } }",
+              "variables": {
+                  "input": {
+                      "branch": {
+                          "repositoryNameWithOwner": os.environ["REPO"],
+                          "branchName": "main",
+                      },
+                      "message": msg,
+                      "fileChanges": {
+                          "additions": [
+                              {"path": "Cargo.toml", "contents": b64("Cargo.toml")},
+                              {"path": "Cargo.lock", "contents": b64("Cargo.lock")},
+                          ]
+                      },
+                      "expectedHeadOid": os.environ["EXPECTED_OID"],
+                  }
+              }
+          }
+          print(json.dumps(payload))
+          PY
+
+          gh api graphql --input /tmp/payload.json > /tmp/result.json
+          cat /tmp/result.json
+          if grep -q '"errors"' /tmp/result.json; then
+            echo "❌ GraphQL mutation returned errors"
+            exit 1
+          fi
+          NEW_OID=$(python3 -c 'import json; print(json.load(open("/tmp/result.json"))["data"]["createCommitOnBranch"]["commit"]["oid"])')
+          echo "✅ Pushed verified commit $NEW_OID for version $NEW_VERSION"
+
+          # Sync local repo with the new verified commit so subsequent
+          # steps (cargo publish, release creation) see the bumped version.
+          git fetch origin main
+          git reset --hard FETCH_HEAD
 
       - name: Generate changelog
         uses: dataroadinc/github-actions/.github/actions/generate-changelog@main
