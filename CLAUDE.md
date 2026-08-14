@@ -128,7 +128,7 @@ with CI's tag creation workflow.
 - Never execute `git push` - user must push manually
 - Prefer `git rebase` over `git merge` for linear history
 
-Git hooks in `.githooks/` are auto-installed via `sloughi` during
+Git hooks in `.githooks/` are auto-installed via `rhusky` during
 build.
 
 ## Markdown formatting

@@ -118,7 +118,7 @@ dependencies = [
  "gix",
  "indicatif",
  "portable-pty",
- "sloughi",
+ "rhusky",
  "tempfile",
  "tokio",
 ]
@@ -1386,6 +1386,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
 
 [[package]]
+name = "rhusky"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd58f5095f1eaaee85441008005db48773976f5bb85bedd35d6cf3f04db8ec4b"
+
+[[package]]
 name = "rustix"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1535,12 +1541,6 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
-
-[[package]]
-name = "sloughi"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0569fee432a4d80dbdcb77b16df865536b49baa45b72fff3ee4b6ea11033bfd0"
 
 [[package]]
 name = "smallvec"
