@@ -25,8 +25,15 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cargo-plugin-utils = "0.0.10"
+cargo-plugin-utils = "0.0.12"
 ```
+
+## Development
+
+The repository uses Rhusky to install its tracked `.githooks/` when Cargo
+builds the root package. The explicit `RHUSKY_REPOSITORY_ROOT` setting in
+`.cargo/config.toml` confines installation to this checkout; builds performed
+while this crate is a dependency do not alter a consumer's Git hooks.
 
 ## License
 
