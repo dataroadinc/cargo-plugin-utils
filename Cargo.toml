@@ -1,7 +1,7 @@
 [package]
 name = "cargo-plugin-utils"
 description = "Shared utilities for cargo plugins (logger, subprocess handling, common functions)"
-version = "0.0.11"
+version = "0.0.12"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 keywords = ["cargo", "plugin", "utilities", "logger", "cli"]
